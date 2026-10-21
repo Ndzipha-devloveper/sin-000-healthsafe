@@ -239,4 +239,25 @@ class IngestionServiceAppTest {
 
         assertEquals(new Ward("W-09", "West Wing", null, null), ward);
     }
+    @Test
+    @DisplayName("mergeDuplicates keeps one ward per ID and fills gaps from the duplicate")
+    void mergeDuplicates_fillsGaps() {
+        List<Ward> merged = IngestionServiceApp.mergeDuplicates(List.of(
+                new Ward("W-05", "East Wing", null, 5),
+                new Ward("W-01", "East Wing", "Cardiology", 3),
+                new Ward("W-05", null, "Paediatrics", null)));
+
+        assertEquals(List.of(
+                new Ward("W-05", "East Wing", "Paediatrics", 5),
+                new Ward("W-01", "East Wing", "Cardiology", 3)), merged);
+    }
+
+    @Test
+    @DisplayName("loadWards returns 17 unique wards and W-05 only once")
+    void loadWards_mergesW05() throws IOException {
+        List<Ward> wards = IngestionServiceApp.loadWards("/wards-outdated.csv");
+
+        assertEquals(17, wards.size());
+        assertEquals(1, wards.stream().filter(w -> w.id().equals("W-05")).count());
+    }
 }
