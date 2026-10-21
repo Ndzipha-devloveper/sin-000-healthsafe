@@ -6,10 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.text.ParsePosition;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import com.ibm.icu.text.RuleBasedNumberFormat;
@@ -28,13 +25,17 @@ public class IngestionServiceApp {
         // cleaned records here for the other services to consume.
 
         //This temporary prints raw vs cleaned rows checking the cleaning methods are working as expected
-        List<String> rawLines = csvFileReader("/wards-outdated.csv");
         List<Ward> wards = loadWards("/wards-outdated.csv");
-        for(int i = 0; i < wards.size(); i++) {
-            System.out.println("Raw: " + rawLines.get(i + 1));   // +1 because rawLines includes the header
-            System.out.println("Cleaned: " + wards.get(i));
-            System.out.println();
-        }
+        app.get("/wards", ctx -> ctx.json(wards));
+
+
+//        List<String> rawLines = csvFileReader("/wards-outdated.csv");
+//        List<Ward> wardz = loadWards("/wards-outdated.csv");
+//        for(int i = 0; i < wardz.size(); i++) {
+//            System.out.println("Raw: " + rawLines.get(i + 1));   // +1 because rawLines includes the header
+//            System.out.println("Cleaned: " + wardz.get(i));
+//            System.out.println();
+//        }
 
     }
     public static List<String> csvFileReader(String filePath) throws IOException {
@@ -149,11 +150,34 @@ public class IngestionServiceApp {
      */
 
     public static List<Ward> loadWards(String filePath) throws IOException {
-        return csvFileReader(filePath).stream()
+        List<Ward> parsed = csvFileReader(filePath).stream()
                 .skip(1)                                  // skip the header line
                 .map(IngestionServiceApp::parseLine)
                 .toList();
+        return mergeDuplicates(parsed);
     }
+    /*
+     * Merges wards that share the same ID into one, keeping the original order.
+     */
+    public static List<Ward> mergeDuplicates(List<Ward> wards) {
+        Map<String, Ward> byId = new LinkedHashMap<>();
+        for (Ward ward : wards) {
+            byId.merge(ward.id(), ward, IngestionServiceApp::mergeWards);
+        }
+        return List.copyOf(byId.values());
+    }
+
+    /*
+     * Combines two rows for the same ward: the first non-null value wins for each field.
+     */
+    static Ward mergeWards(Ward first, Ward second) {
+        return new Ward(
+                first.id(),
+                first.wing() != null ? first.wing() : second.wing(),
+                first.department() != null ? first.department() : second.department(),
+                first.bedsAvailable() != null ? first.bedsAvailable() : second.bedsAvailable());
+    }
+
 
     public record Ward(String id, String wing, String department, Integer bedsAvailable) {}
 
