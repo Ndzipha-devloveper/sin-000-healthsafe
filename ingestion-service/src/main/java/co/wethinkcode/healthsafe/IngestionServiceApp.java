@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.text.ParsePosition;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -149,16 +150,24 @@ public class IngestionServiceApp {
     }
 
 
-    /*
-        Reads the CSV file skips header and turns every row into cleaned Ward object. Returns a list of cleaned Wards.
+    /**
+     * Reads the CSV file, skips the header, and turns every valid row into a cleaned Ward.
+     * Blank or malformed rows are logged and skipped. Duplicate ids are merged.
      */
     public static List<Ward> loadWards(String filePath) throws IOException {
-        List<Ward> parsed = csvFileReader(filePath).stream()
-                .skip(1)                                  // skip the header line
-                .map(IngestionServiceApp::parseLine)
-                .toList();
-        return mergeDuplicates(parsed);
+       List<Ward> parsed = new ArrayList<>();
+    for (String line : csvFileReader(filePath).stream().skip(1).toList()) {
+        if (line.isBlank()) continue;
+        try {
+            parsed.add(parseLine(line));
+        } catch (IllegalArgumentException e) {
+            System.err.println("Skipping bad row: " + e.getMessage());
+        }
     }
+    return mergeDuplicates(parsed);
+    }
+
+
     /*
      * Merges wards that share the same ID into one, keeping the original order.
      */
