@@ -1,8 +1,5 @@
 package co.wethinkcode.healthsafe;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-
 import java.io.IOException;
 import java.util.List;
 
@@ -11,7 +8,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
+import co.wethinkcode.healthsafe.IngestionServiceApp;
 import co.wethinkcode.healthsafe.IngestionServiceApp.Ward;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 class IngestionServiceAppTest {
 
@@ -260,4 +260,25 @@ class IngestionServiceAppTest {
         assertEquals(17, wards.size());
         assertEquals(1, wards.stream().filter(w -> w.id().equals("W-05")).count());
     }
+
+    @Test
+@DisplayName("parseLine rejects a row with fewer than 4 fields")
+void parseLine_tooFewFields() {
+    assertThrows(IllegalArgumentException.class,
+            () -> IngestionServiceApp.parseLine("W-20,East Wing,Cardiology"));
+}
+
+@Test
+@DisplayName("parseLine rejects a row with no ward id")
+void parseLine_missingId() {
+    assertThrows(IllegalArgumentException.class,
+            () -> IngestionServiceApp.parseLine(" ,East Wing,Cardiology,3"));
+}
+
+@Test
+@DisplayName("loadWards skips bad rows instead of crashing")
+void loadWards_skipsBadRows() throws IOException {
+    List<Ward> wards = IngestionServiceApp.loadWards("/wards-outdated.csv");
+    assertEquals(17, wards.size());
+}
 }
