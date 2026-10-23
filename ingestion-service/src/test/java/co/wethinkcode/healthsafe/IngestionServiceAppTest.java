@@ -3,15 +3,15 @@ package co.wethinkcode.healthsafe;
 import java.io.IOException;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
-import co.wethinkcode.healthsafe.IngestionServiceApp;
 import co.wethinkcode.healthsafe.IngestionServiceApp.Ward;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 class IngestionServiceAppTest {
 
@@ -261,24 +261,29 @@ class IngestionServiceAppTest {
         assertEquals(1, wards.stream().filter(w -> w.id().equals("W-05")).count());
     }
 
+    // ---------- malformed rows ----------
+
     @Test
-@DisplayName("parseLine rejects a row with fewer than 4 fields")
-void parseLine_tooFewFields() {
-    assertThrows(IllegalArgumentException.class,
-            () -> IngestionServiceApp.parseLine("W-20,East Wing,Cardiology"));
-}
+    @DisplayName("parseLine rejects a row with fewer than 4 fields")
+    void parseLine_tooFewFields() {
+        assertThrows(IllegalArgumentException.class,
+                () -> IngestionServiceApp.parseLine("W-20,East Wing,Cardiology"));
+    }
 
-@Test
-@DisplayName("parseLine rejects a row with no ward id")
-void parseLine_missingId() {
-    assertThrows(IllegalArgumentException.class,
-            () -> IngestionServiceApp.parseLine(" ,East Wing,Cardiology,3"));
-}
+    @Test
+    @DisplayName("parseLine rejects a row with no ward id")
+    void parseLine_missingId() {
+        assertThrows(IllegalArgumentException.class,
+                () -> IngestionServiceApp.parseLine(" ,East Wing,Cardiology,3"));
+    }
 
-@Test
-@DisplayName("loadWards skips bad rows instead of crashing")
-void loadWards_skipsBadRows() throws IOException {
-    List<Ward> wards = IngestionServiceApp.loadWards("/wards-outdated.csv");
-    assertEquals(17, wards.size());
-}
+    @Test
+    @DisplayName("loadWards skips bad rows and keeps the good ones")
+    void loadWards_skipsBadRows() throws IOException {
+        List<Ward> wards = IngestionServiceApp.loadWards("/wards-with-bad-rows.csv");
+
+        assertEquals(List.of(
+                new Ward("W-01", "East Wing", "Cardiology", 3),
+                new Ward("W-03", "South Wing", "Radiology", 2)), wards);
+    }
 }
