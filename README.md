@@ -1,5 +1,9 @@
 # HealthSafe
 
+## WeThinkCode Repository Verification
+**Verification Code:** `WTC-FZCJL76X`
+
+
 ## Overview
 
 Hospital ward status and emergency staffing schedules.
