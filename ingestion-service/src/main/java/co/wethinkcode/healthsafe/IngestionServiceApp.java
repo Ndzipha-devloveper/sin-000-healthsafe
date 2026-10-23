@@ -6,7 +6,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.text.ParsePosition;
-import java.util.*;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import com.ibm.icu.text.RuleBasedNumberFormat;
@@ -24,18 +28,10 @@ public class IngestionServiceApp {
         // trim whitespace, fix casing, normalize dates/booleans) and expose the
         // cleaned records here for the other services to consume.
 
-        //This temporary prints raw vs cleaned rows checking the cleaning methods are working as expected
+        //This  prints raw vs cleaned rows checking the cleaning methods are working as expected
         List<Ward> wards = loadWards("/wards-outdated.csv");
         app.get("/wards", ctx -> ctx.json(wards));
 
-
-//        List<String> rawLines = csvFileReader("/wards-outdated.csv");
-//        List<Ward> wardz = loadWards("/wards-outdated.csv");
-//        for(int i = 0; i < wardz.size(); i++) {
-//            System.out.println("Raw: " + rawLines.get(i + 1));   // +1 because rawLines includes the header
-//            System.out.println("Cleaned: " + wardz.get(i));
-//            System.out.println();
-//        }
 
     }
     public static List<String> csvFileReader(String filePath) throws IOException {
@@ -133,22 +129,29 @@ public class IngestionServiceApp {
         return result.longValue();
     }
 
-    /*
+    /**
      * Turns one raw CSV line into a cleaned Ward.
      * The -1 limit keeps empty fields (like a missing wing).
+     *
+     * @throws IllegalArgumentException if the row has fewer than 4 fields
+     *                                  or has no ward id
      */
     public  static Ward parseLine(String line) {
         String[] fields = line.split(",", -1);
+        if (fields.length < 4) throw new IllegalArgumentException("Expected 4 fields: " + line);
+        String id = cleanId(fields[0]);
+        if (id == null || id.isBlank()) throw new IllegalArgumentException("Missing ward id: " + line);
         return new Ward(
-                cleanId(fields[0]),
+                id,
                 cleanWing(fields[1]),
                 cleanDepartment(fields[2]),
                 cleanBeds(fields[3]));
     }
+
+
     /*
         Reads the CSV file skips header and turns every row into cleaned Ward object. Returns a list of cleaned Wards.
      */
-
     public static List<Ward> loadWards(String filePath) throws IOException {
         List<Ward> parsed = csvFileReader(filePath).stream()
                 .skip(1)                                  // skip the header line
