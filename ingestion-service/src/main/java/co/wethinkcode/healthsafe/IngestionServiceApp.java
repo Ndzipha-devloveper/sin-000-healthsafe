@@ -1,24 +1,24 @@
 package co.wethinkcode.healthsafe;
 
 import java.io.BufferedReader;
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.text.ParsePosition;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
-
-import com.ibm.icu.text.RuleBasedNumberFormat;
 
 import io.javalin.Javalin;
 
+/**
+ * Ingestion service for loading, cleaning, and serving ward data.
+ */
 public class IngestionServiceApp {
 
     private static final int PORT = 7030;
@@ -26,100 +26,183 @@ public class IngestionServiceApp {
     private static final int EXPECTED_FIELDS = 4;
     private static final int MAX_BEDS = 100;
 
-    private static final Map<String, String> DEPARTMENTS = Map.of(
-            "cardiology", "Cardiology",
-            "paediatrics", "Paediatrics",
-            "pediatrics", "Paediatrics",
-            "oncology", "Oncology",
-            "radiology", "Radiology",
-            "maternity", "Maternity",
-            "icu", "ICU"
-    );
+    private static final Set<String> INVALID_PLACEHOLDERS =
+            Set.of("N/A", "NA", "NULL", "UNKNOWN");
 
-    private static final RuleBasedNumberFormat ENGLISH_NUMBER_WORD_PARSER =
-            new RuleBasedNumberFormat(
-                    Locale.ENGLISH,
-                    RuleBasedNumberFormat.SPELLOUT
-            );
+    private static final Map<String, String> DEPARTMENTS = createDepartments();
 
-    public static void main(String[] args) throws IOException {
-        // Load and clean the ward data before starting the server.
-        List<Ward> wards = loadWards(WARDS_FILE);
+    private IngestionServiceApp() {
+        // Utility class.
+    }
 
-        Javalin app = Javalin.create().start(PORT);
+    /**
+     * Starts the ingestion service.
+     *
+     * @param args command-line arguments
+     */
+    public static void main(String[] args) {
+        List<Ward> wards = loadWards();
+
+        Javalin app = createApp(wards);
+        app.start(PORT);
+
+        System.out.println("Ingestion Service running on port " + PORT);
+    }
+
+    /**
+     * Creates the REST application.
+     *
+     * @param wards the wards to serve
+     * @return configured Javalin application
+     */
+    public static Javalin createApp(List<Ward> wards) {
+        Javalin app = Javalin.create();
 
         app.get("/health", ctx -> ctx.result("OK"));
         app.get("/wards", ctx -> ctx.json(wards));
+
+        app.get("/wards/{id}", ctx -> {
+            String id = cleanId(ctx.pathParam("id"));
+
+            Ward ward = wards.stream()
+                    .filter(candidate -> candidate.id().equalsIgnoreCase(id))
+                    .findFirst()
+                    .orElse(null);
+
+            if (ward == null) {
+                ctx.status(404).json(Map.of("error", "Ward not found"));
+                return;
+            }
+
+            ctx.json(ward);
+        });
+
+        return app;
     }
 
     /**
-     * Reads a classpath resource as UTF-8 and returns its lines.
+     * Creates a reader for the default bundled CSV file.
      *
-     * @param filePath classpath resource path
-     * @return the lines in the resource
-     * @throws IOException if the resource cannot be read
+     * @return reader for the CSV file
+     * @throws IOException if the file cannot be opened
      */
-    public static List<String> csvFileReader(String filePath) throws IOException {
-        try (InputStream input =
-                     IngestionServiceApp.class.getResourceAsStream(filePath)) {
-
-            if (input == null) {
-                throw new FileNotFoundException(
-                        "CSV resource not found: " + filePath
-                );
-            }
-
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(input, StandardCharsets.UTF_8))) {
-
-                return reader.lines().toList();
-            }
-        }
+    public static BufferedReader csvFileReader() throws IOException {
+        return csvFileReader(WARDS_FILE);
     }
 
     /**
-     * Cleans a ward ID by trimming whitespace and converting it to uppercase.
+     * Creates a reader for a bundled CSV resource.
+     *
+     * @param resource the CSV resource path
+     * @return reader for the CSV file
+     * @throws IOException if the file cannot be opened
+     */
+    public static BufferedReader csvFileReader(String resource)
+            throws IOException {
+
+        if (isMissingValue(resource)) {
+            throw new IOException("CSV resource path cannot be blank");
+        }
+
+        String resourcePath = resource.startsWith("/")
+                ? resource
+                : "/" + resource;
+
+        InputStream input = IngestionServiceApp.class
+                .getResourceAsStream(resourcePath);
+
+        if (input == null) {
+            throw new IOException(
+                    "Could not find CSV resource: " + resourcePath);
+        }
+
+        return new BufferedReader(
+                new InputStreamReader(input, StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Checks whether a value is null, blank, or a known placeholder.
+     *
+     * @param value value to check
+     * @return true if the value is missing or invalid
+     */
+    private static boolean isMissingValue(String value) {
+        return value == null
+                || value.isBlank()
+                || INVALID_PLACEHOLDERS.contains(
+                        value.trim().toUpperCase(Locale.ROOT));
+    }
+
+    /**
+     * Cleans a ward ID.
+     *
+     * @param id raw ward ID
+     * @return cleaned ward ID, or an empty string if invalid
      */
     public static String cleanId(String id) {
-        return id == null ? null : id.trim().toUpperCase(Locale.ROOT);
+        if (isMissingValue(id)) {
+            return "";
+        }
+
+        return id.trim().toUpperCase(Locale.ROOT);
     }
 
     /**
-     * Cleans a wing name by trimming whitespace and applying title case.
-     * Returns null for null or blank values.
+     * Cleans a ward wing.
+     *
+     * @param wing raw wing value
+     * @return cleaned wing value, or an empty string if invalid
      */
     public static String cleanWing(String wing) {
-        if (wing == null || wing.isBlank()) {
-            return null;
+        if (isMissingValue(wing)) {
+            return "";
         }
 
         return toTitleCase(wing);
     }
 
     /**
-     * Normalises recognised department names.
-     * Returns null for unknown, null, or blank values.
+     * Cleans and standardises a department name.
+     *
+     * @param department raw department name
+     * @return standardised department name, or an empty string if invalid
      */
     public static String cleanDepartment(String department) {
-        if (department == null || department.isBlank()) {
-            return null;
+        if (isMissingValue(department)) {
+            return "";
         }
 
-        return DEPARTMENTS.get(department.trim().toLowerCase(Locale.ROOT));
+        String normalised = department.trim()
+                .replaceAll("\\s+", " ")
+                .toLowerCase(Locale.ROOT);
+
+        String canonical = DEPARTMENTS.get(normalised);
+
+        if (canonical != null) {
+            return canonical;
+        }
+
+        return toTitleCase(department);
     }
 
     /**
-     * Converts ordinary English words to title case.
+     * Converts text to title case and normalises whitespace.
+     *
+     * @param text text to convert
+     * @return title-cased text
      */
     public static String toTitleCase(String text) {
         if (text == null || text.isBlank()) {
-            return null;
+            return "";
         }
 
         return Arrays.stream(text.trim().split("\\s+"))
-                .map(word ->
-                        word.substring(0, 1).toUpperCase(Locale.ROOT)
-                                + word.substring(1).toLowerCase(Locale.ROOT))
+                .map(word -> {
+                    String lower = word.toLowerCase(Locale.ROOT);
+
+                    return Character.toUpperCase(lower.charAt(0))
+                            + lower.substring(1);
+                })
                 .collect(Collectors.joining(" "));
     }
 
@@ -127,8 +210,12 @@ public class IngestionServiceApp {
      * Cleans a beds-available value.
      *
      * "full" becomes 0.
-     * Digits and English number words become integers.
-     * Negative numbers, numbers above MAX_BEDS, and invalid values become null.
+     * Numeric digits between 0 and MAX_BEDS become integers.
+     * Number words, negative numbers, values above MAX_BEDS,
+     * and invalid values become null.
+     *
+     * @param beds raw beds-available value
+     * @return cleaned bed count, or null if invalid
      */
     public static Integer cleanBeds(String beds) {
         if (beds == null || beds.isBlank()) {
@@ -143,18 +230,24 @@ public class IngestionServiceApp {
 
         Long number = parseDigits(value);
 
-        if (number == null) {
-            number = parseWords(value);
-        }
-
-        if (number == null || number < 0 || number > MAX_BEDS) {
+        if (number == null || number > MAX_BEDS) {
             return null;
         }
 
         return number.intValue();
     }
 
+    /**
+     * Parses a value containing numeric digits only.
+     *
+     * @param value value to parse
+     * @return parsed number, or null if invalid
+     */
     private static Long parseDigits(String value) {
+        if (value == null || !value.matches("\\d+")) {
+            return null;
+        }
+
         try {
             return Long.parseLong(value);
         } catch (NumberFormatException e) {
@@ -162,54 +255,27 @@ public class IngestionServiceApp {
         }
     }
 
-    private static Long parseWords(String value) {
-        ParsePosition position = new ParsePosition(0);
-
-        Number result = ENGLISH_NUMBER_WORD_PARSER.parse(value, position);
-
-        // Reject invalid text and values that were only partially parsed.
-        if (result == null || position.getIndex() != value.length()) {
-            return null;
-        }
-
-        // Reject decimal values such as "one point five".
-        if (result.doubleValue() != result.longValue()) {
-            return null;
-        }
-
-        return result.longValue();
-    }
-
     /**
-     * Converts one CSV row into a cleaned Ward.
+     * Parses one CSV row into a Ward.
      *
-     * @throws IllegalArgumentException if the row has fewer than four fields
-     *                                  or has a missing ward ID
+     * @param line CSV row
+     * @return parsed ward, or null if the row is invalid
      */
     public static Ward parseLine(String line) {
         if (line == null || line.isBlank()) {
-            throw new IllegalArgumentException("CSV row is blank");
+            return null;
         }
 
         String[] fields = line.split(",", -1);
 
-        if (fields.length < EXPECTED_FIELDS) {
-            throw new IllegalArgumentException(
-                    "Expected " + EXPECTED_FIELDS + " fields: " + line
-            );
-        }
-
-        if (fields.length > EXPECTED_FIELDS) {
-            throw new IllegalArgumentException(
-                    "Expected " + EXPECTED_FIELDS + " fields but found "
-                            + fields.length + ": " + line
-            );
+        if (fields.length != EXPECTED_FIELDS) {
+            return null;
         }
 
         String id = cleanId(fields[0]);
 
-        if (id == null || id.isBlank()) {
-            throw new IllegalArgumentException("Missing ward ID: " + line);
+        if (id.isBlank()) {
+            return null;
         }
 
         return new Ward(
@@ -221,61 +287,184 @@ public class IngestionServiceApp {
     }
 
     /**
-     * Reads the CSV, skips its header and blank lines, and parses valid rows.
-     * Malformed rows are logged and skipped.
-     * Duplicate ward IDs are merged in their original order.
+     * Loads and cleans wards from the default bundled CSV file.
+     *
+     * @return list of cleaned wards
      */
-    public static List<Ward> loadWards(String filePath) throws IOException {
-        List<Ward> parsed = new ArrayList<>();
+    public static List<Ward> loadWards() {
+        return loadWards(WARDS_FILE);
+    }
 
-        List<String> lines = csvFileReader(filePath);
+    /**
+     * Loads and cleans wards from a specified bundled CSV resource.
+     *
+     * @param resource CSV resource path
+     * @return list of cleaned wards
+     */
+    public static List<Ward> loadWards(String resource) {
+        List<Ward> wards = new ArrayList<>();
 
-        for (String line : lines.stream().skip(1).toList()) {
-            if (line.isBlank()) {
+        try (BufferedReader reader = csvFileReader(resource)) {
+            String line;
+            boolean firstLine = true;
+
+            while ((line = reader.readLine()) != null) {
+                if (line.isBlank()) {
+                    continue;
+                }
+
+                if (firstLine) {
+                    firstLine = false;
+
+                    String header = line.toLowerCase(Locale.ROOT);
+
+                    if (header.contains("id")
+                            && header.contains("department")) {
+                        continue;
+                    }
+                }
+
+                Ward ward = parseLine(line);
+
+                if (ward != null) {
+                    wards.add(ward);
+                }
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException(
+                    "Could not load ward data from " + resource, e);
+        }
+
+        return mergeDuplicates(wards);
+    }
+
+    /**
+     * Merges duplicate wards by their ID, preserving insertion order.
+     *
+     * @param wards input wards
+     * @return wards with duplicate IDs merged
+     */
+    public static List<Ward> mergeDuplicates(List<Ward> wards) {
+        if (wards == null || wards.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        Map<String, Ward> merged = new LinkedHashMap<>();
+
+        for (Ward ward : wards) {
+            if (ward == null || ward.id() == null || ward.id().isBlank()) {
                 continue;
             }
 
-            try {
-                parsed.add(parseLine(line));
-            } catch (IllegalArgumentException e) {
-                System.err.println("Skipping bad row: " + e.getMessage());
+            String id = ward.id().trim().toUpperCase(Locale.ROOT);
+            Ward existing = merged.get(id);
+
+            if (existing == null) {
+                merged.put(id, new Ward(
+                        id,
+                        ward.wing(),
+                        ward.department(),
+                        ward.bedsAvailable()
+                ));
+            } else {
+                merged.put(id, mergeWards(existing, ward));
             }
         }
 
-        return mergeDuplicates(parsed);
+        return new ArrayList<>(merged.values());
     }
 
     /**
-     * Merges wards with matching IDs while preserving the first occurrence's
-     * position in the result.
+     * Merges two records for the same ward.
+     * Existing non-empty values are preferred; missing values are filled
+     * from the incoming record.
+     *
+     * @param existing existing ward
+     * @param incoming incoming ward
+     * @return merged ward
      */
-    public static List<Ward> mergeDuplicates(List<Ward> wards) {
-        Map<String, Ward> byId = new LinkedHashMap<>();
-
-        for (Ward ward : wards) {
-            byId.merge(ward.id(), ward, IngestionServiceApp::mergeWards);
+    public static Ward mergeWards(Ward existing, Ward incoming) {
+        if (existing == null) {
+            return incoming;
         }
 
-        return List.copyOf(byId.values());
+        if (incoming == null) {
+            return existing;
+        }
+
+        String wing = hasText(existing.wing())
+                ? existing.wing()
+                : incoming.wing();
+
+        String department = hasText(existing.department())
+                ? existing.department()
+                : incoming.department();
+
+        Integer beds = existing.bedsAvailable() != null
+                ? existing.bedsAvailable()
+                : incoming.bedsAvailable();
+
+        return new Ward(existing.id(), wing, department, beds);
     }
 
     /**
-     * Combines two records for the same ward.
-     * The first non-null value wins for each field.
+     * Checks whether a string contains meaningful text.
+     *
+     * @param value value to check
+     * @return true if the value is not null or blank
      */
-    static Ward mergeWards(Ward first, Ward second) {
-        return new Ward(
-                first.id(),
-                first.wing() != null ? first.wing() : second.wing(),
-                first.department() != null
-                        ? first.department()
-                        : second.department(),
-                first.bedsAvailable() != null
-                        ? first.bedsAvailable()
-                        : second.bedsAvailable()
-        );
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
+    /**
+     * Creates a map of recognised department names and aliases.
+     *
+     * @return department normalisation map
+     */
+    private static Map<String, String> createDepartments() {
+        Map<String, String> departments = new LinkedHashMap<>();
+
+        departments.put("accident and emergency", "Accident and Emergency");
+        departments.put("a&e", "Accident and Emergency");
+        departments.put("emergency", "Accident and Emergency");
+        departments.put("cardiology", "Cardiology");
+        departments.put("general medicine", "General Medicine");
+        departments.put("medicine", "General Medicine");
+        departments.put("paediatrics", "Paediatrics");
+        departments.put("pediatrics", "Paediatrics");
+        departments.put("maternity", "Maternity");
+        departments.put("obstetrics", "Obstetrics");
+        departments.put("gynaecology", "Gynaecology");
+        departments.put("gynecology", "Gynaecology");
+        departments.put("surgery", "Surgery");
+        departments.put("general surgery", "General Surgery");
+        departments.put("orthopaedics", "Orthopaedics");
+        departments.put("orthopedics", "Orthopaedics");
+        departments.put("intensive care", "Intensive Care");
+        departments.put("icu", "Intensive Care");
+        departments.put("oncology", "Oncology");
+        departments.put("radiology", "Radiology");
+        departments.put("psychiatry", "Psychiatry");
+        departments.put("neurology", "Neurology");
+        departments.put("ophthalmology", "Ophthalmology");
+        departments.put("dermatology", "Dermatology");
+        departments.put("renal", "Renal");
+        departments.put("nephrology", "Nephrology");
+        departments.put("outpatients", "Outpatients");
+        departments.put("outpatient", "Outpatients");
+
+        return Map.copyOf(departments);
+    }
+
+    /**
+     * Ward data model.
+     *
+     * @param id ward identifier
+     * @param wing ward wing
+     * @param department ward department
+     * @param bedsAvailable available bed count, or null if invalid/unknown
+     */
     public record Ward(
             String id,
             String wing,
