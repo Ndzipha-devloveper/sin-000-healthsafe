@@ -1,13 +1,13 @@
 
 package co.wethinkcode.healthsafe;
 
-import io.javalin.Javalin;
-
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
+
+import io.javalin.Javalin;
 
 /**
  * Starts the Ward Service REST API on port 7031.
@@ -62,9 +62,19 @@ public class WardServiceApp {
             }
         });
 
-        // Retrieves a specific ward using its unique ID.
+
+        /*
+        * Retrieves a specific ward using its unique ID.
+        * The requested ID is trimmed and uppercased before the lookup, so
+        * "w-02" and " W-02 " both find ward "W-02".
+        *
+        * Responses:
+        *   200 - the matching ward as JSON
+        *   404 - no ward has that ID
+        *   503 - the Ingestion Service could not be reached
+        */
         app.get("/wards/{id}", ctx -> {
-            String requestedId = ctx.pathParam("id");
+            String requestedId = ctx.pathParam("id").trim().toUpperCase();
 
             try {
                 List<Ward> wards = ingestionClient.getWards();
@@ -96,6 +106,7 @@ public class WardServiceApp {
         });
 
         // Retrieves a sorted list of distinct department names.
+        // Returns 200 with a JSON array, or 503 if Ingestion is unreachable.
         app.get("/departments", ctx -> {
             try {
                 List<Ward> wards = ingestionClient.getWards();
