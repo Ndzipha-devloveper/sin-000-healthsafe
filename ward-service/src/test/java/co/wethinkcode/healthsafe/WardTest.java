@@ -50,4 +50,39 @@ class WardTest {
         assertEquals("Emergency", ward.getDepartment());
         assertEquals(12, ward.getBedsAvailable());
     }
+    @Test
+void nullBedsDeserializesAsNullNotZero() throws Exception {
+    String json = """
+            {"id": "W-02", "wing": "West Wing", "department": "Paediatrics", "bedsAvailable": null}
+            """;
+
+    Ward ward = objectMapper.readValue(json, Ward.class);
+
+    assertNull(ward.getBedsAvailable());
+}
+
+@Test
+void missingBedsDeserializesAsNull() throws Exception {
+    String json = """
+            {"id": "W-02", "wing": "West Wing", "department": "Paediatrics"}
+            """;
+
+    assertNull(objectMapper.readValue(json, Ward.class).getBedsAvailable());
+}
+
+@Test
+void zeroBedsStaysZero() throws Exception {
+    String json = """
+            {"id": "W-03", "wing": "East Wing", "department": "Cardiology", "bedsAvailable": 0}
+            """;
+
+    assertEquals(0, objectMapper.readValue(json, Ward.class).getBedsAvailable());
+}
+
+@Test
+void unknownBedsSerializesAsNull() throws Exception {
+    Ward ward = new Ward("W-02", "West Wing", "Paediatrics", null);
+
+    assertTrue(objectMapper.writeValueAsString(ward).contains("\"bedsAvailable\":null"));
+}
 }
