@@ -191,4 +191,34 @@ class WardServiceAppTest {
         assertEquals(503, response.statusCode());
         assertTrue(response.body().contains("Department data is currently unavailable"));
     }
+    @Test
+void getWardByIdIgnoresCaseOfTheRequestedId() throws Exception {
+    when(ingestionClient.getWards()).thenReturn(List.of(emergencyWard, maternityWard));
+
+    HttpResponse<String> response = get("/wards/w-02");
+    Ward ward = objectMapper.readValue(response.body(), Ward.class);
+
+    assertEquals(200, response.statusCode());
+    assertEquals("W-02", ward.getId());
+}
+
+@Test
+void getWardByIdIgnoresSurroundingSpaces() throws Exception {
+    when(ingestionClient.getWards()).thenReturn(List.of(emergencyWard));
+
+    HttpResponse<String> response = get("/wards/%20W-01%20");
+
+    assertEquals(200, response.statusCode());
+}
+
+@Test
+void getWardByIdKeepsUnknownBedsAsNull() throws Exception {
+    Ward unknownBeds = new Ward("W-03", "East", "Cardiology", null);
+    when(ingestionClient.getWards()).thenReturn(List.of(unknownBeds));
+
+    HttpResponse<String> response = get("/wards/W-03");
+
+    assertEquals(200, response.statusCode());
+    assertTrue(response.body().contains("\"bedsAvailable\":null"));
+}
 }
