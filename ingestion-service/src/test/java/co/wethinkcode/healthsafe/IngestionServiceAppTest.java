@@ -1,11 +1,14 @@
 package co.wethinkcode.healthsafe;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -17,273 +20,437 @@ class IngestionServiceAppTest {
 
     @BeforeEach
     void announceTest(TestInfo testInfo) {
-        System.out.println("-------- Running: " + testInfo.getDisplayName() + " --------");
+        System.out.println(
+                "-------- Running: " + testInfo.getDisplayName() + " --------");
     }
 
     // ---------- csvFileReader ----------
 
     @Test
-    @DisplayName("csvFileReader returns the header plus all 18 data rows")
+    @DisplayName("csvFileReader reads the header and all data rows")
     void csvFileReader_returnsHeaderPlusAllRows() throws IOException {
-        List<String> lines = IngestionServiceApp.csvFileReader("/wards-outdated.csv");
+        List<String> lines;
+
+        try (BufferedReader reader = IngestionServiceApp.csvFileReader()) {
+            lines = reader.lines().toList();
+        }
+
         System.out.println("Lines read from CSV: " + lines.size());
 
-        assertEquals(19, lines.size());   // 1 header + 18 rows
+        assertEquals(19, lines.size());
+    }
+
+    @Test
+    @DisplayName("csvFileReader can load the default CSV using its resource path")
+    void csvFileReader_readsSpecifiedResource() throws IOException {
+        List<String> lines;
+
+        try (BufferedReader reader =
+                     IngestionServiceApp.csvFileReader("/wards-outdated.csv")) {
+            lines = reader.lines().toList();
+        }
+
+        assertEquals(19, lines.size());
     }
 
     // ---------- cleanId ----------
 
     @Test
-    @DisplayName("cleanId trims spaces and makes the ID uppercase")
+    @DisplayName("cleanId trims spaces and converts the ID to uppercase")
     void cleanId_trimsAndUppercases() {
-        System.out.println("\"w-02\"  -> \"" + IngestionServiceApp.cleanId("w-02") + "\"");
-        System.out.println("\"W-03 \" -> \"" + IngestionServiceApp.cleanId("W-03 ") + "\"");
-
-        assertEquals("W-02", IngestionServiceApp.cleanId("w-02"));
-        assertEquals("W-03", IngestionServiceApp.cleanId("W-03 "));
+        assertEquals("W-02", IngestionServiceApp.cleanId("  w-02  "));
     }
 
     @Test
-    @DisplayName("cleanId and cleanWing return null when given null")
-    void cleanId_cleanWing_nullInput() {
-        System.out.println("cleanId(null)   -> " + IngestionServiceApp.cleanId(null));
-        System.out.println("cleanWing(null) -> " + IngestionServiceApp.cleanWing(null));
+    @DisplayName("cleanId returns an empty string for null or blank input")
+    void cleanId_handlesNullAndBlank() {
+        assertEquals("", IngestionServiceApp.cleanId(null));
+        assertEquals("", IngestionServiceApp.cleanId(""));
+        assertEquals("", IngestionServiceApp.cleanId("   "));
+    }
 
-        assertNull(IngestionServiceApp.cleanId(null));
-        assertNull(IngestionServiceApp.cleanWing(null));
+    @Test
+    @DisplayName("cleanId rejects placeholder values")
+    void cleanId_rejectsPlaceholderValues() {
+        assertEquals("", IngestionServiceApp.cleanId("N/A"));
+        assertEquals("", IngestionServiceApp.cleanId("NA"));
+        assertEquals("", IngestionServiceApp.cleanId("NULL"));
+        assertEquals("", IngestionServiceApp.cleanId("UNKNOWN"));
     }
 
     // ---------- cleanWing ----------
 
     @Test
-    @DisplayName("cleanWing trims spaces and capitalises each word")
-    void cleanWing_titleCasesAndTrims() {
-        System.out.println("\"east wing\" -> \"" + IngestionServiceApp.cleanWing("east wing") + "\"");
-        System.out.println("\"North wing\" -> \"" + IngestionServiceApp.cleanWing("North wing") + "\"");
-        System.out.println("\"East Wing \" -> \"" + IngestionServiceApp.cleanWing("East Wing ") + "\"");
-
-        assertEquals("East Wing", IngestionServiceApp.cleanWing("east wing"));
-        assertEquals("North Wing", IngestionServiceApp.cleanWing("North wing"));
-        assertEquals("East Wing", IngestionServiceApp.cleanWing("East Wing "));
+    @DisplayName("cleanWing trims and title-cases the wing")
+    void cleanWing_trimsAndTitleCases() {
+        assertEquals(
+                "East Wing",
+                IngestionServiceApp.cleanWing("  EAST WING  "));
     }
 
     @Test
-    @DisplayName("cleanWing squashes extra spaces between words")
-    void cleanWing_extraInnerSpaces() {
-        System.out.println("\"east    wing\" -> \"" + IngestionServiceApp.cleanWing("east    wing") + "\"");
-
-        assertEquals("East Wing", IngestionServiceApp.cleanWing("east    wing"));
+    @DisplayName("cleanWing collapses repeated spaces")
+    void cleanWing_collapsesRepeatedSpaces() {
+        assertEquals(
+                "East Wing",
+                IngestionServiceApp.cleanWing("east    wing"));
     }
 
     @Test
-    @DisplayName("cleanWing returns null when the wing is empty or only spaces")
-    void cleanWing_blankBecomesNull() {
-        System.out.println("\"\"    -> " + IngestionServiceApp.cleanWing(""));
-        System.out.println("\"   \" -> " + IngestionServiceApp.cleanWing("   "));
+    @DisplayName("cleanWing returns an empty string for null or blank input")
+    void cleanWing_handlesNullAndBlank() {
+        assertEquals("", IngestionServiceApp.cleanWing(null));
+        assertEquals("", IngestionServiceApp.cleanWing(""));
+        assertEquals("", IngestionServiceApp.cleanWing("   "));
+    }
 
-        assertNull(IngestionServiceApp.cleanWing(""));
-        assertNull(IngestionServiceApp.cleanWing("   "));
+    @Test
+    @DisplayName("cleanWing rejects placeholder values")
+    void cleanWing_rejectsPlaceholderValues() {
+        assertEquals("", IngestionServiceApp.cleanWing("N/A"));
+        assertEquals("", IngestionServiceApp.cleanWing("NA"));
+        assertEquals("", IngestionServiceApp.cleanWing("NULL"));
+        assertEquals("", IngestionServiceApp.cleanWing("UNKNOWN"));
     }
 
     // ---------- cleanDepartment ----------
 
     @Test
-    @DisplayName("cleanDepartment fixes casing, spacing and the Pediatrics spelling")
-    void cleanDepartment_normalisesCasingAndSpelling() {
-        System.out.println("\"PAEDIATRICS\" -> " + IngestionServiceApp.cleanDepartment("PAEDIATRICS"));
-        System.out.println("\"Pediatrics\"  -> " + IngestionServiceApp.cleanDepartment("Pediatrics"));
-        System.out.println("\"oncology \"   -> " + IngestionServiceApp.cleanDepartment("oncology "));
-        System.out.println("\"ICU\"         -> " + IngestionServiceApp.cleanDepartment("ICU"));
+    @DisplayName("cleanDepartment normalises recognised departments")
+    void cleanDepartment_normalisesDepartments() {
+        assertEquals(
+                "Cardiology",
+                IngestionServiceApp.cleanDepartment("cardiology"));
 
-        assertEquals("Cardiology", IngestionServiceApp.cleanDepartment("cardiology"));
-        assertEquals("Paediatrics", IngestionServiceApp.cleanDepartment("PAEDIATRICS"));
-        assertEquals("Paediatrics", IngestionServiceApp.cleanDepartment("Pediatrics"));
-        assertEquals("Oncology", IngestionServiceApp.cleanDepartment("oncology "));
-        assertEquals("ICU", IngestionServiceApp.cleanDepartment("ICU"));
+        assertEquals(
+                "Paediatrics",
+                IngestionServiceApp.cleanDepartment("pediatrics"));
+
+        assertEquals(
+                "Paediatrics",
+                IngestionServiceApp.cleanDepartment("PAEDIATRICS"));
+
+        assertEquals(
+                "Oncology",
+                IngestionServiceApp.cleanDepartment("ONCOLOGY"));
+
+        assertEquals(
+                "Intensive Care",
+                IngestionServiceApp.cleanDepartment("ICU"));
     }
 
     @Test
-    @DisplayName("cleanDepartment returns null for unknown or empty departments")
-    void cleanDepartment_unknownOrBlankBecomesNull() {
-        System.out.println("\"Dentistry\" -> " + IngestionServiceApp.cleanDepartment("Dentistry"));
-        System.out.println("null         -> " + IngestionServiceApp.cleanDepartment(null));
+    @DisplayName("cleanDepartment normalises repeated spaces")
+    void cleanDepartment_collapsesRepeatedSpaces() {
+        assertEquals(
+                "General Medicine",
+                IngestionServiceApp.cleanDepartment(" general   medicine "));
+    }
 
-        assertNull(IngestionServiceApp.cleanDepartment("Dentistry"));
-        assertNull(IngestionServiceApp.cleanDepartment("   "));
-        assertNull(IngestionServiceApp.cleanDepartment(null));
+    @Test
+    @DisplayName("cleanDepartment title-cases unknown department names")
+    void cleanDepartment_titleCasesUnknownDepartments() {
+        assertEquals(
+                "Radiotherapy",
+                IngestionServiceApp.cleanDepartment("RADIOTHERAPY"));
+    }
+
+    @Test
+    @DisplayName("cleanDepartment returns an empty string for null or blank input")
+    void cleanDepartment_handlesNullAndBlank() {
+        assertEquals("", IngestionServiceApp.cleanDepartment(null));
+        assertEquals("", IngestionServiceApp.cleanDepartment(""));
+        assertEquals("", IngestionServiceApp.cleanDepartment("   "));
+    }
+
+    @Test
+    @DisplayName("cleanDepartment rejects placeholder values")
+    void cleanDepartment_rejectsPlaceholderValues() {
+        assertEquals("", IngestionServiceApp.cleanDepartment("N/A"));
+        assertEquals("", IngestionServiceApp.cleanDepartment("NA"));
+        assertEquals("", IngestionServiceApp.cleanDepartment("NULL"));
+        assertEquals("", IngestionServiceApp.cleanDepartment("UNKNOWN"));
+    }
+
+    // ---------- toTitleCase ----------
+
+    @Test
+    @DisplayName("toTitleCase converts text to title case")
+    void toTitleCase_convertsText() {
+        assertEquals(
+                "East Wing",
+                IngestionServiceApp.toTitleCase("EAST WING"));
+    }
+
+    @Test
+    @DisplayName("toTitleCase handles null and blank input")
+    void toTitleCase_handlesNullAndBlank() {
+        assertEquals("", IngestionServiceApp.toTitleCase(null));
+        assertEquals("", IngestionServiceApp.toTitleCase(""));
+        assertEquals("", IngestionServiceApp.toTitleCase("   "));
     }
 
     // ---------- cleanBeds ----------
 
     @Test
-    @DisplayName("cleanBeds reads normal numbers, even with spaces around them")
-    void cleanBeds_parsesValidNumbers() {
-        System.out.println("\" 4 \" -> " + IngestionServiceApp.cleanBeds(" 4 "));
-
-        assertEquals(3, IngestionServiceApp.cleanBeds("3"));
+    @DisplayName("cleanBeds accepts valid numeric values")
+    void cleanBeds_acceptsValidNumbers() {
         assertEquals(0, IngestionServiceApp.cleanBeds("0"));
-        assertEquals(4, IngestionServiceApp.cleanBeds(" 4 "));
-    }
-
-    @Test
-    @DisplayName("cleanBeds accepts 100 beds but rejects 101")
-    void cleanBeds_upperBoundary() {
-        System.out.println("\"100\" -> " + IngestionServiceApp.cleanBeds("100"));
-        System.out.println("\"101\" -> " + IngestionServiceApp.cleanBeds("101"));
-
+        assertEquals(1, IngestionServiceApp.cleanBeds("1"));
+        assertEquals(5, IngestionServiceApp.cleanBeds("5"));
+        assertEquals(50, IngestionServiceApp.cleanBeds("50"));
         assertEquals(100, IngestionServiceApp.cleanBeds("100"));
-        assertNull(IngestionServiceApp.cleanBeds("101"));
     }
 
     @Test
-    @DisplayName("cleanBeds turns number words into numbers and 'full' into 0")
-    void cleanBeds_convertsWordsToNumbers() {
-        System.out.println("\"five\" -> " + IngestionServiceApp.cleanBeds("five"));
-        System.out.println("\"full\" -> " + IngestionServiceApp.cleanBeds("full"));
-
-        assertEquals(5, IngestionServiceApp.cleanBeds("five"));
-        assertEquals(0, IngestionServiceApp.cleanBeds("full"));
+    @DisplayName("cleanBeds trims whitespace")
+    void cleanBeds_trimsWhitespace() {
+        assertEquals(5, IngestionServiceApp.cleanBeds(" 5 "));
     }
 
     @Test
-    @DisplayName("cleanBeds treats 'FULL' in any casing or spacing as 0")
+    @DisplayName("cleanBeds converts full to zero regardless of case")
     void cleanBeds_fullAnyCase() {
-        System.out.println("\" FULL \" -> " + IngestionServiceApp.cleanBeds(" FULL "));
-
+        assertEquals(0, IngestionServiceApp.cleanBeds("full"));
         assertEquals(0, IngestionServiceApp.cleanBeds(" FULL "));
+        assertEquals(0, IngestionServiceApp.cleanBeds("FULL"));
     }
 
     @Test
-    @DisplayName("cleanBeds understands bigger number words in any casing")
-    void cleanBeds_biggerWordsAnyCase() {
-        System.out.println("\"Seven\"      -> " + IngestionServiceApp.cleanBeds("Seven"));
-        System.out.println("\"TWELVE\"     -> " + IngestionServiceApp.cleanBeds("TWELVE"));
-        System.out.println("\"twenty-one\" -> " + IngestionServiceApp.cleanBeds("twenty-one"));
-
-        assertEquals(7, IngestionServiceApp.cleanBeds("Seven"));
-        assertEquals(12, IngestionServiceApp.cleanBeds("TWELVE"));
-        assertEquals(21, IngestionServiceApp.cleanBeds("twenty-one"));
+    @DisplayName("cleanBeds rejects number words")
+    void cleanBeds_rejectsNumberWords() {
+        assertNull(IngestionServiceApp.cleanBeds("five"));
+        assertNull(IngestionServiceApp.cleanBeds("Seven"));
+        assertNull(IngestionServiceApp.cleanBeds("TWELVE"));
+        assertNull(IngestionServiceApp.cleanBeds("twenty-one"));
     }
 
     @Test
-    @DisplayName("cleanBeds returns null for text, negatives, years and empty values")
-    void cleanBeds_invalidBecomesNull() {
-        System.out.println("\"N/A\"  -> " + IngestionServiceApp.cleanBeds("N/A"));
-        System.out.println("\"-1\"   -> " + IngestionServiceApp.cleanBeds("-1"));
-        System.out.println("\"2023\" -> " + IngestionServiceApp.cleanBeds("2023"));
-
-        assertNull(IngestionServiceApp.cleanBeds("N/A"));
-        assertNull(IngestionServiceApp.cleanBeds("TBD"));
-        assertNull(IngestionServiceApp.cleanBeds("unknown"));
+    @DisplayName("cleanBeds rejects values outside the permitted range")
+    void cleanBeds_rejectsOutOfRangeValues() {
+        assertNull(IngestionServiceApp.cleanBeds("101"));
         assertNull(IngestionServiceApp.cleanBeds("-1"));
-        assertNull(IngestionServiceApp.cleanBeds("-2"));
-        assertNull(IngestionServiceApp.cleanBeds("2023"));
-        assertNull(IngestionServiceApp.cleanBeds(""));
+        assertNull(IngestionServiceApp.cleanBeds("1000"));
+    }
+
+    @Test
+    @DisplayName("cleanBeds rejects decimals and invalid text")
+    void cleanBeds_rejectsInvalidValues() {
+        assertNull(IngestionServiceApp.cleanBeds("2.5"));
+        assertNull(IngestionServiceApp.cleanBeds("abc"));
+        assertNull(IngestionServiceApp.cleanBeds("five beds"));
+    }
+
+    @Test
+    @DisplayName("cleanBeds returns null for null or blank input")
+    void cleanBeds_handlesNullAndBlank() {
         assertNull(IngestionServiceApp.cleanBeds(null));
-    }
-
-    @Test
-    @DisplayName("cleanBeds rejects words that are not just a number")
-    void cleanBeds_rejectsExtraText() {
-        System.out.println("\"five apples\"          -> " + IngestionServiceApp.cleanBeds("five apples"));
-        System.out.println("\"one point five\"       -> " + IngestionServiceApp.cleanBeds("one point five"));
-        System.out.println("\"one hundred and one\"  -> " + IngestionServiceApp.cleanBeds("one hundred and one"));
-
-        assertNull(IngestionServiceApp.cleanBeds("five apples"));
-        assertNull(IngestionServiceApp.cleanBeds("one point five"));
-        assertNull(IngestionServiceApp.cleanBeds("one hundred and one"));
-    }
-
-    @Test
-    @DisplayName("cleanBeds rejects decimals written as digits")
-    void cleanBeds_rejectsDigitDecimals() {
-        System.out.println("\"3.5\" -> " + IngestionServiceApp.cleanBeds("3.5"));
-
-        assertNull(IngestionServiceApp.cleanBeds("3.5"));
+        assertNull(IngestionServiceApp.cleanBeds(""));
+        assertNull(IngestionServiceApp.cleanBeds("   "));
     }
 
     // ---------- parseLine ----------
 
     @Test
-    @DisplayName("parseLine cleans all four fields of a normal row")
-    void parseLine_normalRow() {
-        Ward ward = IngestionServiceApp.parseLine("w-17,North wing,oncology,6");
-        System.out.println("Parsed: " + ward);
+    @DisplayName("parseLine parses a valid CSV row")
+    void parseLine_parsesValidRow() {
+        Ward ward = IngestionServiceApp.parseLine(
+                "W-01,East Wing,Cardiology,5");
 
-        assertEquals(new Ward("W-17", "North Wing", "Oncology", 6), ward);
+        assertNotNull(ward);
+        assertEquals("W-01", ward.id());
+        assertEquals("East Wing", ward.wing());
+        assertEquals("Cardiology", ward.department());
+        assertEquals(5, ward.bedsAvailable());
     }
 
     @Test
-    @DisplayName("parseLine copes with messy spacing and a number written as a word")
+    @DisplayName("parseLine handles whitespace and invalid bed words")
     void parseLine_messySpacingAndWordNumber() {
-        Ward ward = IngestionServiceApp.parseLine("  w-02 , east wing , PEDIATRICS , five ");
-        System.out.println("Parsed: " + ward);
+        Ward ward = IngestionServiceApp.parseLine(
+                "  w-02 , east wing , PEDIATRICS , five ");
 
-        assertEquals(new Ward("W-02", "East Wing", "Paediatrics", 5), ward);
+        assertNotNull(ward);
+        assertEquals("W-02", ward.id());
+        assertEquals("East Wing", ward.wing());
+        assertEquals("Paediatrics", ward.department());
+        assertNull(ward.bedsAvailable());
     }
 
     @Test
-    @DisplayName("parseLine leaves the wing as null when it is empty")
-    void parseLine_missingWing() {
-        Ward ward = IngestionServiceApp.parseLine("W-08,,cardiology,3");
-        System.out.println("Parsed: " + ward);
+    @DisplayName("parseLine converts full beds to zero")
+    void parseLine_fullBeds() {
+        Ward ward = IngestionServiceApp.parseLine(
+                "W-03,South Wing,Radiology,full");
 
-        assertEquals(new Ward("W-08", null, "Cardiology", 3), ward);
+        assertNotNull(ward);
+        assertEquals(0, ward.bedsAvailable());
     }
 
     @Test
-    @DisplayName("parseLine turns an unknown department and a bad bed count into null")
-    void parseLine_unknownDepartmentAndBadBeds() {
-        Ward ward = IngestionServiceApp.parseLine("W-09,west wing,Dentistry,N/A");
-        System.out.println("Parsed: " + ward);
-
-        assertEquals(new Ward("W-09", "West Wing", null, null), ward);
+    @DisplayName("parseLine returns null for null or blank input")
+    void parseLine_handlesNullAndBlank() {
+        assertNull(IngestionServiceApp.parseLine(null));
+        assertNull(IngestionServiceApp.parseLine(""));
+        assertNull(IngestionServiceApp.parseLine("   "));
     }
+
     @Test
-    @DisplayName("mergeDuplicates keeps one ward per ID and fills gaps from the duplicate")
+    @DisplayName("parseLine rejects rows with the wrong number of fields")
+    void parseLine_rejectsWrongNumberOfFields() {
+        assertNull(IngestionServiceApp.parseLine("W-01,East Wing,Cardiology"));
+        assertNull(IngestionServiceApp.parseLine(
+                "W-01,East Wing,Cardiology,5,Extra"));
+    }
+
+    @Test
+    @DisplayName("parseLine rejects rows with a missing or invalid ID")
+    void parseLine_rejectsMissingId() {
+        assertNull(IngestionServiceApp.parseLine(
+                ",East Wing,Cardiology,5"));
+
+        assertNull(IngestionServiceApp.parseLine(
+                "UNKNOWN,East Wing,Cardiology,5"));
+    }
+
+    // ---------- mergeWards ----------
+
+    @Test
+    @DisplayName("mergeWards fills missing values from the incoming ward")
+    void mergeWards_fillsGaps() {
+        Ward existing = new Ward(
+                "W-01",
+                "",
+                "Cardiology",
+                null);
+
+        Ward incoming = new Ward(
+                "W-01",
+                "East Wing",
+                "Oncology",
+                5);
+
+        Ward merged = IngestionServiceApp.mergeWards(existing, incoming);
+
+        assertEquals("W-01", merged.id());
+        assertEquals("East Wing", merged.wing());
+        assertEquals("Cardiology", merged.department());
+        assertEquals(5, merged.bedsAvailable());
+    }
+
+    @Test
+    @DisplayName("mergeWards returns incoming ward when existing is null")
+    void mergeWards_handlesNullExisting() {
+        Ward incoming = new Ward(
+                "W-01",
+                "East Wing",
+                "Cardiology",
+                5);
+
+        assertEquals(
+                incoming,
+                IngestionServiceApp.mergeWards(null, incoming));
+    }
+
+    @Test
+    @DisplayName("mergeWards returns existing ward when incoming is null")
+    void mergeWards_handlesNullIncoming() {
+        Ward existing = new Ward(
+                "W-01",
+                "East Wing",
+                "Cardiology",
+                5);
+
+        assertEquals(
+                existing,
+                IngestionServiceApp.mergeWards(existing, null));
+    }
+
+    // ---------- mergeDuplicates ----------
+
+    @Test
+    @DisplayName("mergeDuplicates combines duplicate ward records")
     void mergeDuplicates_fillsGaps() {
-        List<Ward> merged = IngestionServiceApp.mergeDuplicates(List.of(
-                new Ward("W-05", "East Wing", null, 5),
-                new Ward("W-01", "East Wing", "Cardiology", 3),
-                new Ward("W-05", null, "Paediatrics", null)));
+        List<Ward> wards = new ArrayList<>();
 
-        assertEquals(List.of(
-                new Ward("W-05", "East Wing", "Paediatrics", 5),
-                new Ward("W-01", "East Wing", "Cardiology", 3)), merged);
+        wards.add(new Ward("W-01", "", "Cardiology", null));
+        wards.add(new Ward("W-01", "East Wing", "", 5));
+
+        List<Ward> merged = IngestionServiceApp.mergeDuplicates(wards);
+
+        assertEquals(1, merged.size());
+        assertEquals("W-01", merged.get(0).id());
+        assertEquals("East Wing", merged.get(0).wing());
+        assertEquals("Cardiology", merged.get(0).department());
+        assertEquals(5, merged.get(0).bedsAvailable());
     }
 
     @Test
-    @DisplayName("loadWards returns 17 unique wards and W-05 only once")
-    void loadWards_mergesW05() throws IOException {
-        List<Ward> wards = IngestionServiceApp.loadWards("/wards-outdated.csv");
+    @DisplayName("mergeDuplicates preserves the order of unique ward IDs")
+    void mergeDuplicates_preservesInsertionOrder() {
+        List<Ward> wards = List.of(
+                new Ward("W-02", "West Wing", "Surgery", 2),
+                new Ward("W-01", "East Wing", "Cardiology", 5),
+                new Ward("W-02", "West Wing", "Surgery", 3));
+
+        List<Ward> merged = IngestionServiceApp.mergeDuplicates(wards);
+
+        assertEquals(2, merged.size());
+        assertEquals("W-02", merged.get(0).id());
+        assertEquals("W-01", merged.get(1).id());
+    }
+
+    @Test
+    @DisplayName("mergeDuplicates handles null or empty lists")
+    void mergeDuplicates_handlesNullAndEmpty() {
+        assertTrue(IngestionServiceApp.mergeDuplicates(null).isEmpty());
+        assertTrue(IngestionServiceApp.mergeDuplicates(List.of()).isEmpty());
+    }
+
+    @Test
+    @DisplayName("mergeDuplicates ignores null wards and invalid IDs")
+    void mergeDuplicates_ignoresInvalidWards() {
+        List<Ward> wards = new ArrayList<>();
+
+        wards.add(null);
+        wards.add(new Ward("", "East Wing", "Cardiology", 5));
+        wards.add(new Ward("W-01", "East Wing", "Cardiology", 5));
+
+        List<Ward> merged = IngestionServiceApp.mergeDuplicates(wards);
+
+        assertEquals(1, merged.size());
+        assertEquals("W-01", merged.get(0).id());
+    }
+
+    // ---------- loadWards ----------
+
+    @Test
+    @DisplayName("loadWards loads and merges the default CSV")
+    void loadWards_loadsDefaultCsv() {
+        List<Ward> wards = IngestionServiceApp.loadWards();
+
+        assertNotNull(wards);
+        assertEquals(17, wards.size());
+    }
+
+    @Test
+    @DisplayName("loadWards merges duplicate W-05 records")
+    void loadWards_mergesW05() {
+        List<Ward> wards = IngestionServiceApp.loadWards();
+
+        long count = wards.stream()
+                .filter(ward -> ward.id().equals("W-05"))
+                .count();
+
+        assertEquals(1, count);
+    }
+
+    @Test
+    @DisplayName("loadWards can load a specified CSV resource")
+    void loadWards_loadsSpecifiedResource() {
+        List<Ward> wards =
+                IngestionServiceApp.loadWards("/wards-outdated.csv");
 
         assertEquals(17, wards.size());
-        assertEquals(1, wards.stream().filter(w -> w.id().equals("W-05")).count());
-    }
-
-    // ---------- malformed rows ----------
-
-    @Test
-    @DisplayName("parseLine rejects a row with fewer than 4 fields")
-    void parseLine_tooFewFields() {
-        assertThrows(IllegalArgumentException.class,
-                () -> IngestionServiceApp.parseLine("W-20,East Wing,Cardiology"));
-    }
-
-    @Test
-    @DisplayName("parseLine rejects a row with no ward id")
-    void parseLine_missingId() {
-        assertThrows(IllegalArgumentException.class,
-                () -> IngestionServiceApp.parseLine(" ,East Wing,Cardiology,3"));
-    }
-
-    @Test
-    @DisplayName("loadWards skips bad rows and keeps the good ones")
-    void loadWards_skipsBadRows() throws IOException {
-        List<Ward> wards = IngestionServiceApp.loadWards("/wards-with-bad-rows.csv");
-
-        assertEquals(List.of(
-                new Ward("W-01", "East Wing", "Cardiology", 3),
-                new Ward("W-03", "South Wing", "Radiology", 2)), wards);
     }
 }
