@@ -14,13 +14,13 @@ public class Ward {
     public String id;
     public String wing;
     public String department;
-    public int bedsAvailable;
+    public Integer bedsAvailable;
 
     public Ward() {
         // Required by Jackson for JSON deserialization.
     }
 
-    public Ward(String id, String wing, String department, int bedsAvailable) {
+    public Ward(String id, String wing, String department, Integer bedsAvailable) {
         this.id = id;
         this.wing = wing;
         this.department = department;
@@ -39,7 +39,7 @@ public class Ward {
         return department;
     }
 
-    public int getBedsAvailable() {
+    public Integer getBedsAvailable() {
         return bedsAvailable;
     }
 }
