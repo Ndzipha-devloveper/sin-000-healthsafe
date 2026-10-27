@@ -1,0 +1,6 @@
+ward_id,Wing,department,beds_available
+W-01,East Wing,Cardiology,3
+
+W-02,West Wing,Paediatrics
+,North Wing,Oncology,4
+w-03,south wing,radiology,2
