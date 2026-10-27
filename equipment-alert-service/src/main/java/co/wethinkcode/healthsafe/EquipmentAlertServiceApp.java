@@ -1,18 +1,32 @@
 package co.wethinkcode.healthsafe;
 
 import io.javalin.Javalin;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Map;
 
+/** REST health/read API and reliable ActiveMQ queue consumer for equipment alerts. */
 public class EquipmentAlertServiceApp {
+    private static final int PORT = 7034;
 
     public static void main(String[] args) {
-        Javalin app = Javalin.create().start(7034);
+        Path alertFile = Path.of(System.getenv().getOrDefault(
+                "HEALTHSAFE_ALERTS_FILE", "data/equipment-alerts.jsonl"));
+        AlertStore store = new AlertStore(alertFile);
+        EquipmentAlertConsumer consumer = new EquipmentAlertConsumer(store);
+        Runtime.getRuntime().addShutdownHook(new Thread(consumer::close));
+        createApp(store).start(PORT);
+        consumer.start();
+        System.out.println("Equipment Alert Service started on port " + PORT);
+    }
 
+    public static Javalin createApp(AlertStore store) {
+        Javalin app = Javalin.create();
         app.get("/health", ctx -> ctx.result("OK"));
-
-        // TODO (Uses a Queue to guarantee delivery of critical medical equipment failure alerts.)
-        // Mechanism: ActiveMQ Queue (guaranteed delivery)
+        app.get("/alerts", ctx -> {
+            try { ctx.json(store.all()); }
+            catch (IOException e) { ctx.status(500).json(Map.of("error", "Could not read persisted alerts")); }
+        });
+        return app;
     }
 }
-
-// MQ TODO: consumes ActiveMQ queue MqConfig.QUEUE at MqConfig.BROKER_URL (see co.wethinkcode.healthsafe.mq.MqConfig)
-// Producer: ward-service publishes here when it detects an equipment failure on one of its wards.
