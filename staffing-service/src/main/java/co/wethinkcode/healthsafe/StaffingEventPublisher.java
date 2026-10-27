@@ -3,72 +3,44 @@ package co.wethinkcode.healthsafe;
 import co.wethinkcode.healthsafe.mq.MqConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.activemq.ActiveMQConnectionFactory;
-import org.jetbrains.annotations.Async;
 
 import javax.jms.Connection;
-import javax.jms.DeliveryMode;
 import javax.jms.MessageProducer;
 import javax.jms.Session;
 import javax.jms.TextMessage;
+import javax.jms.DeliveryMode;
 import java.util.Objects;
 
+/** Publishes computed staffing schedules as events to the shared topic. */
 public class StaffingEventPublisher implements AutoCloseable {
+    private final ActiveMQConnectionFactory factory;
+    private final ObjectMapper mapper = new ObjectMapper();
 
-    private final ActiveMQConnectionFactory connectionFactory;
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
-    public StaffingEventPublisher() {
-        this(MqConfig.BROKER_URL);
-    }
+    public StaffingEventPublisher() { this(MqConfig.BROKER_URL); }
 
     public StaffingEventPublisher(String brokerUrl) {
-        this.connectionFactory =
-                new ActiveMQConnectionFactory(
-                        Objects.requireNonNull(brokerUrl)
-                );
+        this.factory = new ActiveMQConnectionFactory(Objects.requireNonNull(brokerUrl));
     }
 
-    public void publish(Async.Schedule schedule) throws Exception {
+    public void publish(Schedule schedule) throws Exception {
         Objects.requireNonNull(schedule, "schedule");
-
-        try (Connection connection =
-                     connectionFactory.createConnection()) {
-
-            Session session = connection.createSession(
-                    false,
-                    Session.AUTO_ACKNOWLEDGE
-            );
-
+        try (Connection connection = factory.createConnection()) {
+            Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
             try {
-                MessageProducer producer = session.createProducer(
-                        session.createTopic(MqConfig.TOPIC)
-                );
-
+                MessageProducer producer = session.createProducer(session.createTopic(MqConfig.TOPIC));
                 try {
                     producer.setDeliveryMode(DeliveryMode.PERSISTENT);
-
-                    String json = objectMapper.writeValueAsString(schedule);
-                    TextMessage message = session.createTextMessage(json);
-
-                    message.setStringProperty(
-                            "wardId",
-                            schedule.wardId()
-                    );
-
+                    TextMessage message = session.createTextMessage(mapper.writeValueAsString(schedule));
+                    message.setStringProperty("wardId", schedule.wardId());
                     producer.send(message);
-
                 } finally {
                     producer.close();
                 }
-
             } finally {
                 session.close();
             }
         }
     }
 
-    @Override
-    public void close() {
-        // Each publish operation closes its own JMS resources.
-    }
+    @Override public void close() { /* Each publish call owns and closes its JMS resources. */ }
 }
