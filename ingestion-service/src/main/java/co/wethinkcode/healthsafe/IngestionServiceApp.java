@@ -26,8 +26,18 @@ public class IngestionServiceApp {
     private static final int EXPECTED_FIELDS = 4;
     private static final int MAX_BEDS = 100;
 
-    private static final Set<String> INVALID_PLACEHOLDERS =
-            Set.of("N/A", "NA", "NULL", "UNKNOWN");
+    private static final Set<String> INVALID_PLACEHOLDERS = Set.of(
+            "N/A",
+            "NA",
+            "NULL",
+            "UNKNOWN",
+            "TBD",
+            "-",
+            "NAN",
+            "NONE",
+            "NOT AVAILABLE",
+            "NOT APPLICABLE"
+    );
 
     private static final Map<String, String> DEPARTMENTS = createDepartments();
 
@@ -207,18 +217,18 @@ public class IngestionServiceApp {
     }
 
     /**
-     * Cleans a beds-available value.
+     * Cleans the beds-available value.
      *
      * "full" becomes 0.
-     * Numeric digits between 0 and MAX_BEDS become integers.
-     * Number words, negative numbers, values above MAX_BEDS,
-     * and invalid values become null.
+     * Valid integers between 0 and MAX_BEDS are retained.
+     * Negative values, values above MAX_BEDS, number words,
+     * and missing or invalid placeholders become null.
      *
-     * @param beds raw beds-available value
+     * @param beds raw bed-count value
      * @return cleaned bed count, or null if invalid
      */
     public static Integer cleanBeds(String beds) {
-        if (beds == null || beds.isBlank()) {
+        if (isMissingValue(beds)) {
             return null;
         }
 
@@ -373,11 +383,11 @@ public class IngestionServiceApp {
 
         return new ArrayList<>(merged.values());
     }
-
     /**
      * Merges two records for the same ward.
-     * Existing non-empty values are preferred; missing values are filled
-     * from the incoming record.
+     *
+     * Meaningful existing values are preferred. If an existing value
+     * is missing or a placeholder, a meaningful incoming value is used.
      *
      * @param existing existing ward
      * @param incoming incoming ward
@@ -392,11 +402,11 @@ public class IngestionServiceApp {
             return existing;
         }
 
-        String wing = hasText(existing.wing())
+        String wing = hasMeaningfulText(existing.wing())
                 ? existing.wing()
                 : incoming.wing();
 
-        String department = hasText(existing.department())
+        String department = hasMeaningfulText(existing.department())
                 ? existing.department()
                 : incoming.department();
 
@@ -404,7 +414,25 @@ public class IngestionServiceApp {
                 ? existing.bedsAvailable()
                 : incoming.bedsAvailable();
 
-        return new Ward(existing.id(), wing, department, beds);
+        return new Ward(
+                existing.id(),
+                wing,
+                department,
+                beds
+        );
+    }
+
+    /**
+     * Checks whether a string contains meaningful information.
+     *
+     * A value is not meaningful if it is null, blank, or a recognised
+     * placeholder such as N/A, TBD, UNKNOWN, or -.
+     *
+     * @param value value to check
+     * @return true if the value contains meaningful text
+     */
+    private static boolean hasMeaningfulText(String value) {
+        return value != null && !isMissingValue(value);
     }
 
     /**
