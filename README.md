@@ -204,7 +204,19 @@ Get the cleaned ward records:
 
 ```bash
 curl -i http://localhost:7030/wards
+
 ```
+### View Wards in Readable JSON Format
+
+Make sure the Ingestion Service is running, then execute:
+
+```bash
+curl -s http://localhost:7030/wards | python3 -m json.tool
+```
+
+This command retrieves the wards and displays the JSON with indentation, making it easier to read and inspect in the terminal.
+
+**Note:** If your service uses a different endpoint, replace `/wards` with the correct path.
 
 Get one ward:
 
